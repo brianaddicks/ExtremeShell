@@ -36,7 +36,8 @@ function Get-EntHardware {
                 $NewChassis.Type = $ChassisTypeMatch.Groups['type'].Value.Trim()
 
                 switch ($NewChassis.Type) {
-                    { $_ -match "bonded" } {
+                    { ($_ -match "bonded") -or
+                      ($_ -match "K10") } {
                         $NewChassis.PartNumber = (($_ -replace "bonded","").Trim() -replace " ","-").ToUpper()
                     }
                     default {
@@ -97,121 +98,167 @@ function Get-EntHardware {
             ################################################################################
             # Slots
 
-            $SlotStartRx = [regex] "SLOT\ (?<num>\d+)\ \(Chassis\ (?<chassis>\d+)"
-            $SlotStartMatch = $SlotStartRx.Match($c)
-            if ($SlotStartMatch.Success) {
-                $OptionModule = $false
-                $Slot = $true
-                $NewItem = New-Object -TypeName ExtremeShell.Slot
-                $NewItem.Number = $SlotStartMatch.Groups['num'].Value
-                $SlotChassis = $SlotStartMatch.Groups['chassis'].Value
+            switch ($NewChassis.PartNumber) {
+                "S4-CHASSIS" {
+                    $SlotStartRx = [regex] "SLOT\ (?<num>\d+)\ \(Chassis\ (?<chassis>\d+)"
+                    $SlotStartMatch = $SlotStartRx.Match($c)
+                    if ($SlotStartMatch.Success) {
+                        $OptionModule = $false
+                        $Slot = $true
+                        $NewItem = New-Object -TypeName ExtremeShell.Slot
+                        $NewItem.Number = $SlotStartMatch.Groups['num'].Value
+                        $SlotChassis = $SlotStartMatch.Groups['chassis'].Value
             
-                $CorrectChassis = $NewDevice.Hardware | ? { $_.Number -eq $SlotChassis }
-                $CorrectChassis.Slots += $NewItem
+                        $CorrectChassis = $NewDevice.Hardware | ? { $_.Number -eq $SlotChassis }
+                        $CorrectChassis.Slots += $NewItem
 
-                $SlotPrefix = ($ChassisPrefix -replace '\d+',$SlotChassis) + " Slot " + $NewItem.Number + ":"
-                Write-Verbose "$SlotPrefix $SlotChassis"
-            }
-
-            $SlotModelRx = [regex] "Model:\ +(?<model>.+)"
-            $SlotModelMatch = $SlotModelRx.Match($c)
-            if ($SlotModelMatch.Success) {
-                if ($OptionModule) {
-                    if (!($NewOptionModule.Model)) {
-                        $NewOptionModule.Model = $SlotModelMatch.Groups['model'].Value
-                        Write-Verbose "$OptionPrefix $($NewOptionModule.Model)"
+                        $SlotPrefix = ($ChassisPrefix -replace '\d+',$SlotChassis) + " Slot " + $NewItem.Number + ":"
+                        Write-Verbose "$SlotPrefix $SlotChassis"
                     }
-                } else {
-                    if (!($NewItem.Model)) {
-                        $NewItem.Model = $SlotModelMatch.Groups['model'].Value
-                        Write-Verbose "$SlotPrefix $($NewItem.Model)"
+
+                    $SlotModelRx = [regex] "Model:\ +(?<model>.+)"
+                    $SlotModelMatch = $SlotModelRx.Match($c)
+                    if ($SlotModelMatch.Success) {
+                        if ($OptionModule) {
+                            if (!($NewOptionModule.Model)) {
+                                $NewOptionModule.Model = $SlotModelMatch.Groups['model'].Value
+                                Write-Verbose "$OptionPrefix $($NewOptionModule.Model)"
+                            }
+                        } else {
+                            if (!($NewItem.Model)) {
+                                $NewItem.Model = $SlotModelMatch.Groups['model'].Value
+                                Write-Verbose "$SlotPrefix $($NewItem.Model)"
+                            }
+                        }
+                    }
+
+                    $SerialNumberRx = [regex] "^\ +Serial\ Number:\ +(?<serial>.+)"
+                    $SerialNumberMatch = $SerialNumberRx.Match($c)
+                    if ($SerialNumberMatch.Success) {
+                        if ($OptionModule) {
+                            if (!($NewOptionModule.SerialNumber)) {
+                                $NewOptionModule.SerialNumber = $SerialNumberMatch.Groups['serial'].Value
+                                Write-Verbose "$OptionPrefix $($NewOptionModule.SerialNumber)"
+                            }
+                        } elseif ($Slot) {
+                            if (!($NewItem.SerialNumber)) {
+                                $NewItem.SerialNumber = $SerialNumberMatch.Groups['serial'].Value
+                                Write-Verbose "$SlotPrefix $($NewItem.SerialNumber)"
+                            }
+                        }
+                    }
+
+                    $PartNumberRx = [regex] "Part\ Number:\ +(?<num>.+)"
+                    $PartNumberMatch = $PartNumberRx.Match($c)
+                    if ($PartNumberMatch.Success) {
+                        if ($OptionModule) {
+                            $NewOptionModule.PartNumber = $PartNumberMatch.Groups['num'].Value
+                            Write-Verbose "$OptionPrefix $($NewOptionModule.PartNumber)"
+                        } else {
+                            $NewItem.PartNumber = $PartNumberMatch.Groups['num'].Value
+                            Write-Verbose "$SlotPrefix $($NewItem.PartNumber)"
+                        }
+                    }
+
+                    $HardwareVersionRx = [regex] "Hardware\ Version:\ +(?<ver>.+)"
+                    $HardwareVersionMatch = $HardwareVersionRx.Match($c)
+                    if ($HardwareVersionMatch.Success) {
+                        $NewItem.HardwareVersion = $HardwareVersionMatch.Groups['ver'].Value
+                        Write-Verbose "$SlotPrefix $($NewItem.HardwareVersion)"
+                    }
+
+                    $FirmwareVersionRx = [regex] "Firmware\ Version:\ +(?<ver>.+)"
+                    $FirmwareVersionMatch = $FirmwareVersionRx.Match($c)
+                    if ($FirmwareVersionMatch.Success) {
+                        $NewItem.FirmwareVersion = $FirmwareVersionMatch.Groups['ver'].Value
+                        Write-Verbose "$SlotPrefix $($NewItem.FirmwareVersion)"
+                    }
+
+                    $BootCodeVersionRx = [regex] "BootCode\ Version:\ +(?<ver>.+)"
+                    $BootCodeVersionMatch = $BootCodeVersionRx.Match($c)
+                    if ($BootCodeVersionMatch.Success) {
+                        $NewItem.BootCodeVersion = $BootCodeVersionMatch.Groups['ver'].Value
+                        Write-Verbose "$SlotPrefix $($NewItem.BootCodeVersion)"
+                    }
+
+                    $BootPROMVersionRx = [regex] "BootPROM\ Version:\ +(?<ver>.+)"
+                    $BootPROMVersionMatch = $BootPROMVersionRx.Match($c)
+                    if ($BootPROMVersionMatch.Success) {
+                        $NewItem.BootPromVersion = $BootPROMVersionMatch.Groups['ver'].Value
+                        Write-Verbose "$SlotPrefix $($NewItem.BootPromVersion)"
+                    }
+
+                    ################################################################################
+                    # Option Module
+
+                    $OptionModuleRx = [regex] "NIM\[(\d+)\]\ -\ Option"
+                    $OptionModuleMatch = $OptionModuleRx.Match($c)
+                    if ($OptionModuleMatch.Success) {
+                        $OptionModule = $true
+                        $NewOptionModule = New-Object -TypeName ExtremeShell.OptionModule
+                        $NewItem.OptionModules += $NewOptionModule
+                        $Nim = $OptionModuleMatch.Groups[1].Value
+
+                        $OptionPrefix = $SlotPrefix + " Option Module " + $Nim + ":"
+                        Write-Verbose $OptionPrefix
+                    }
+
+                    $OptionModuleLocRx = [regex] "Chassis\ \d+\ location:\ +(?<loc>.+)"
+                    $OptionModuleLocMatch = $OptionModuleLocRx.Match($c)
+                    if ($OptionModuleLocMatch.Success) {
+                        $NewOptionModule.Location = $OptionModuleLocMatch.Groups['loc'].Value
+                        Write-Verbose "$OptionPrefix $($NewOptionModule.Location)"
+                    }
+
+                    $OptionModuleRevRx = [regex] "Board\ Revision:\ +(?<rev>\d+)"
+                    $OptionModuleRevMatch = $OptionModuleRevRx.Match($c)
+                    if ($OptionModuleRevMatch.Success) {
+                        $NewOptionModule.BoardRevision = $OptionModuleRevMatch.Groups['rev'].Value
+                        Write-Verbose "$OptionPrefix $($NewOptionModule.BoardRevision)"
                     }
                 }
-            }
+                "K10-CHASSIS" {
+                    $SlotStartRx = [regex] "SLOT\ (?<num>\d+)"
+                    $SlotStartMatch = $SlotStartRx.Match($c)
+                    if ($SlotStartMatch.Success) {
+                        $OptionModule = $false
+                        $Slot = $true
+                        $NewItem = New-Object -TypeName ExtremeShell.Slot
+                        $NewItem.Number = $SlotStartMatch.Groups['num'].Value
+                        $SlotChassis = $SlotStartMatch.Groups['chassis'].Value
+            
+                        $CorrectChassis = $NewDevice.Hardware | ? { $_.Number -eq $SlotChassis }
+                        $CorrectChassis.Slots += $NewItem
 
-            $SerialNumberRx = [regex] "Serial\ Number:\ +(?<serial>.+)"
-            $SerialNumberMatch = $SerialNumberRx.Match($c)
-            if ($SerialNumberMatch.Success) {
-                if ($OptionModule) {
-                    if (!($NewOptionModule.SerialNumber)) {
-                        $NewOptionModule.SerialNumber = $SerialNumberMatch.Groups['serial'].Value
-                        Write-Verbose "$OptionPrefix $($NewOptionModule.SerialNumber)"
+                        $SlotPrefix = ($ChassisPrefix -replace '\d+',$SlotChassis) + " Slot " + $NewItem.Number + ":"
+                        Write-Verbose "$SlotPrefix $SlotChassis"
                     }
-                } elseif ($Slot) {
-                    if (!($NewItem.SerialNumber)) {
-                        $NewItem.SerialNumber = $SerialNumberMatch.Groups['serial'].Value
-                        Write-Verbose "$SlotPrefix $($NewItem.SerialNumber)"
+
+                    $SlotModelRx = [regex] "Model:\ +(?<model>.+)"
+                    $SlotModelMatch = $SlotModelRx.Match($c)
+                    if ($SlotModelMatch.Success) {
+                        if (!($NewItem.Model)) {
+                            $NewItem.Model = $SlotModelMatch.Groups['model'].Value
+                            Write-Verbose "$SlotPrefix $($NewItem.Model)"
+                        }
+                    }
+
+                    $SerialNumberRx = [regex] "^\s+Serial\ Number:\ +(?<serial>.+)"
+                    $SerialNumberMatch = $SerialNumberRx.Match($c)
+                    if ($SerialNumberMatch.Success) {
+                        if (!($NewItem.SerialNumber)) {
+                            $NewItem.SerialNumber = $SerialNumberMatch.Groups['serial'].Value
+                            Write-Verbose "$SlotPrefix $($NewItem.SerialNumber)"
+                        }
+                    }
+
+                    $PartNumberRx = [regex] "Part\ Number:\ +(?<num>.+)"
+                    $PartNumberMatch = $PartNumberRx.Match($c)
+                    if ($PartNumberMatch.Success) {
+                        $NewItem.PartNumber = $PartNumberMatch.Groups['num'].Value
+                        Write-Verbose "$SlotPrefix $($NewItem.PartNumber)"
                     }
                 }
-            }
-
-            $PartNumberRx = [regex] "Part\ Number:\ +(?<num>.+)"
-            $PartNumberMatch = $PartNumberRx.Match($c)
-            if ($PartNumberMatch.Success) {
-                if ($OptionModule) {
-                    $NewOptionModule.PartNumber = $PartNumberMatch.Groups['num'].Value
-                    Write-Verbose "$OptionPrefix $($NewOptionModule.PartNumber)"
-                } else {
-                    $NewItem.PartNumber = $PartNumberMatch.Groups['num'].Value
-                    Write-Verbose "$SlotPrefix $($NewItem.PartNumber)"
-                }
-            }
-
-            $HardwareVersionRx = [regex] "Hardware\ Version:\ +(?<ver>.+)"
-            $HardwareVersionMatch = $HardwareVersionRx.Match($c)
-            if ($HardwareVersionMatch.Success) {
-                $NewItem.HardwareVersion = $HardwareVersionMatch.Groups['ver'].Value
-                Write-Verbose "$SlotPrefix $($NewItem.HardwareVersion)"
-            }
-
-            $FirmwareVersionRx = [regex] "Firmware\ Version:\ +(?<ver>.+)"
-            $FirmwareVersionMatch = $FirmwareVersionRx.Match($c)
-            if ($FirmwareVersionMatch.Success) {
-                $NewItem.FirmwareVersion = $FirmwareVersionMatch.Groups['ver'].Value
-                Write-Verbose "$SlotPrefix $($NewItem.FirmwareVersion)"
-            }
-
-            $BootCodeVersionRx = [regex] "BootCode\ Version:\ +(?<ver>.+)"
-            $BootCodeVersionMatch = $BootCodeVersionRx.Match($c)
-            if ($BootCodeVersionMatch.Success) {
-                $NewItem.BootCodeVersion = $BootCodeVersionMatch.Groups['ver'].Value
-                Write-Verbose "$SlotPrefix $($NewItem.BootCodeVersion)"
-            }
-
-            $BootPROMVersionRx = [regex] "BootPROM\ Version:\ +(?<ver>.+)"
-            $BootPROMVersionMatch = $BootPROMVersionRx.Match($c)
-            if ($BootPROMVersionMatch.Success) {
-                $NewItem.BootPromVersion = $BootPROMVersionMatch.Groups['ver'].Value
-                Write-Verbose "$SlotPrefix $($NewItem.BootPromVersion)"
-            }
-
-            ################################################################################
-            # Option Module
-
-            $OptionModuleRx = [regex] "NIM\[(\d+)\]\ -\ Option"
-            $OptionModuleMatch = $OptionModuleRx.Match($c)
-            if ($OptionModuleMatch.Success) {
-                $OptionModule = $true
-                $NewOptionModule = New-Object -TypeName ExtremeShell.OptionModule
-                $NewItem.OptionModules += $NewOptionModule
-                $Nim = $OptionModuleMatch.Groups[1].Value
-
-                $OptionPrefix = $SlotPrefix + " Option Module " + $Nim + ":"
-                Write-Verbose $OptionPrefix
-            }
-
-            $OptionModuleLocRx = [regex] "Chassis\ \d+\ location:\ +(?<loc>.+)"
-            $OptionModuleLocMatch = $OptionModuleLocRx.Match($c)
-            if ($OptionModuleLocMatch.Success) {
-                $NewOptionModule.Location = $OptionModuleLocMatch.Groups['loc'].Value
-                Write-Verbose "$OptionPrefix $($NewOptionModule.Location)"
-            }
-
-            $OptionModuleRevRx = [regex] "Board\ Revision:\ +(?<rev>\d+)"
-            $OptionModuleRevMatch = $OptionModuleRevRx.Match($c)
-            if ($OptionModuleRevMatch.Success) {
-                $NewOptionModule.BoardRevision = $OptionModuleRevMatch.Groups['rev'].Value
-                Write-Verbose "$OptionPrefix $($NewOptionModule.BoardRevision)"
             }
         }
     }
