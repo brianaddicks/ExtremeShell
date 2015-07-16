@@ -39,7 +39,5 @@ function HelperBladeProps {
     $NewObject.PinY   = $PinY
     $NewObject.Width  = $Width
     $NewObject.Height = $Height
-
-
     return $NewObject
 }
