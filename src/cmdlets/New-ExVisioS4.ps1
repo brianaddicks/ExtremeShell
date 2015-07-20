@@ -9,9 +9,26 @@ function New-ExVisioS4 {
 		[Parameter(Mandatory=$True,Position=0)]
 		[ExtremeShell.Device]$DeviceObject,
 		
-		[Parameter(Mandatory=$True,Position=0)]
-		[string]$StencilPath
+		[Parameter(Mandatory=$False)]
+		[string]$VsdPath,
+		
+		[Parameter(Mandatory=$False)]
+		[string]$SvgPath,
+		
+		[Parameter(Mandatory=$False)]
+		[string]$PngPath
 	)
+	
+	# Used for Write-Verbose and Throw
+	$VerbosePrefix = "New-ExVisioS4:"
+	
+	# Test for VisioShell
+	$IsModuleAvailable = Get-Module -Listavailable -Name VisioShell
+	if (!($IsModuleAvailable)) {
+		Throw "$VerbosePrefex VisioShell Module not found."
+	} else {
+		$Import = Import-Module VisioShell
+	}
 	
 	# Create objects for blade/psu placement
 	$BladeCoords = @()
@@ -33,57 +50,105 @@ function New-ExVisioS4 {
 	$BladeCoords += HelperBladeProps ps4 3.984375 6.5625 5.046875 6.3125 4.5137 6.8541 1.2783 0.4913
 	
 	# Start Visio
-	$VisioApp = New-Object -ComObject Visio.Application
-	$VisioApp.visible = $true
-	
-	# Create new Document
-	$Documents = $VisioApp.Documents
-	$Document = $Documents.Add("")
-	
-	# Select Active Pages
-	$Pages = $VisioApp.ActiveDocument.Pages
-	$Page  = $Pages.Item(1)
+	Write-Verbose "$VerbosePrefix Starting Visio"
+	Start-Visio -Quiet
 	
 	# Load Stencil
-	$LoadStencil = $VisioApp.Documents.Add($StencilPath)
+	$StencilPath = "$PSScriptRoot\Resources\S-Series.vss"
+	Write-Verbose "$VerbosePrefix Importing Stencil: $StencilPath"
+	$LoadStencil = Import-VisioStencilFile "$PSScriptRoot\Resources\S-Series.vss"
+	
+	###########################################################################################
+	# Chassis and Hostname
+	
+	$ChassisModel = $DeviceObject.Hardware.PartNumber
+	$ChassisName  = $DeviceObject.Name
+	
+	# Chassis Caption
+	Write-Verbose "$VerbosePrefix Creating chassis caption"
+	$Caption = Add-VisioRectangle 0.265625 10.75 5.328125 10.375 -Textbox -FontSize 18 -Text $ChassisName
+		
+	# Chassis Stencil
+	$Stencil = Select-VisioStencil $ChassisModel
+	$Shape   = Add-VisioStencil $Stencil 2.7984 8.4697
+
+	# Hostname Caption
+	$Caption = Add-VisioRectangle 0.265625 6.3125 5.328125 5.9375 -Textbox -FontSize 18 -Text $ChassisName
+	
+	###########################################################################################
+	# Blades and OptionModules
 	
 	# Add Blades
 	foreach ($s in $DeviceObject.Hardware.Slots) {
 		$Slot = "slot" + $s.Number
 		$b = $BladeCoords | ? { $_.slot -eq $Slot }
-		Write-Verbose $Slot
+		Write-Verbose "$VerbosePrefex $Slot"
 		
 		# Create Caption
-		$Caption = $Page.DrawRectangle($b.x1, $b.y1, $b.x2, $b.y2)
-		$Caption.TextStyle = "Normal"
-	    $Caption.LineStyle = "Text Only"
-	    $Caption.FillStyle = "Text Only"
-		$Caption.Text      = $s.Model
-		$Caption.CellsSRC(3,0,7).Formula = "18 pt"
+		$Caption = Add-VisioRectangle $b.x1 $b.y1 $b.x2 $b.y2 -Textbox -FontSize 18 -Text $s.Model
 			
 		# Select and Drop Blade Stencil
-		$Stencil = $LoadStencil.Masters.Item($s.Model)
-		$Shape   = $Page.Drop($Stencil, $b.pinx, $b.piny)
+		$Stencil = Select-VisioStencil $s.Model
+		$Shape   = Add-VisioStencil $Stencil $b.pinx $b.piny
 		
 		# OptionModules
 		foreach ($o in $s.OptionModules) {
 			$OptionSlot = $o.Location.Split()
-			$OptionSlot = $OptionSlot[0].SubString(0,1) + $OptionSlot[1].SubString(0,1)
-			$OptionSlot = $Slot + '_' + $OptionSlot
-			Write-Verbose $OptionSlot
+			$OptionLoc  = $OptionSlot[0].SubString(0,1) + $OptionSlot[1].SubString(0,1)
+			$OptionSlot = $Slot + '_' + $OptionLoc
+			Write-Verbose "$VerbosePrefex $Slot"
 			$b = $BladeCoords | ? { $_.slot -eq $OptionSlot }
 			
 			# Create Caption
-			$Caption = $Page.DrawRectangle($b.x1, $b.y1, $b.x2, $b.y2)
-			$Caption.TextStyle = "Normal"
-		    $Caption.LineStyle = "Text Only"
-		    $Caption.FillStyle = "Text Only"
-			$Caption.Text      = $o.Model
-			$Caption.CellsSRC(3,0,7).Formula = "18 pt"
+			$Caption = Add-VisioRectangle $b.x1 $b.y1 $b.x2 $b.y2 -Textbox -FontSize 18 -Text $o.Model
+			
+			# Change color for option Slots
+			switch ($OptionLoc) {
+				'ul' {
+					Set-VisioShapeFont $Caption -ColorInHex C00000
+				}
+				'ur' {
+					Set-VisioShapeFont $Caption -ColorInHex 0070C0
+				}
+			}
 				
 			# Select and Drop Blade Stencil
-			$Stencil = $LoadStencil.Masters.Item($o.Model)
-			$Shape   = $Page.Drop($Stencil, $b.pinx, $b.piny)
+			$Stencil = Select-VisioStencil $o.Model
+			$Shape   = Add-VisioStencil $Stencil $b.pinx $b.piny
 		}
+	}
+	
+	###########################################################################################
+	# Power Supplies
+	
+	foreach ($s in ($DeviceObject.Hardware.PowerSupplies | ? { $_.Status -ne "Not Installed"}) ) {
+		$Slot = "ps" + $s.Number
+		$b = $BladeCoords | ? { $_.slot -eq $Slot }
+		
+		# Create Caption
+		$Caption = Add-VisioRectangle $b.x1 $b.y1 $b.x2 $b.y2 -Textbox -FontSize 18 -Text $s.Type
+			
+		# Select and Drop Blade Stencil
+		$Stencil = Select-VisioStencil $s.Type
+		$Shape   = Add-VisioStencil $Stencil $b.pinx $b.piny
+	}
+	
+	
+	###########################################################################################
+	# Clean Up and Save
+	
+	# Fit Page to Contents
+	Set-VisioPageProperty -ResizeToFitContents
+	
+	# Save desired filetypes
+	if ($VsdPath) { Save-VisioDocument $VsdPath	}
+	if ($PngPath) { Export-VisioPage $PngPath -Resolution 300x300 }
+	if ($SvgPath) { Export-VisioPage $SvgPath}
+	
+	# Display Visio if no file was saved, otherwise quit visio
+	if ($VsdPath -or $PngPath -or $SvgPath) {
+		Stop-Visio
+	} else {
+		$global:VisioShellInstance.App.Visible = $true
 	}
 }

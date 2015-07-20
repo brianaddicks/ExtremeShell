@@ -126,7 +126,6 @@ function Get-ExHardware {
 					# General Chassis Information
 					
 					# Eval Parameters for this section
-					# Eval Parameters for this section
 					$EvalParams = @{}
 					$EvalParams.VariableToUpdate = ([REF]$NewChassis)
 					$EvalParams.ReturnGroupNum   = 1

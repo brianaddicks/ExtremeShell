@@ -16,16 +16,16 @@ function HelperBladeProps {
         [Parameter(Mandatory=$true,Position=4)]
         [double]$y2,
 
-        [Parameter(Mandatory=$true,Position=5)]
+        [Parameter(Mandatory=$False,Position=5)]
         [double]$PinX,
 
-        [Parameter(Mandatory=$true,Position=6)]
+        [Parameter(Mandatory=$False,Position=6)]
         [double]$PinY,
 
-        [Parameter(Mandatory=$true,Position=7)]
+        [Parameter(Mandatory=$False,Position=7)]
         [double]$Width,
 
-        [Parameter(Mandatory=$true,Position=8)]
+        [Parameter(Mandatory=$False,Position=8)]
         [double]$Height
     )
 

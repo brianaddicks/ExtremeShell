@@ -4,68 +4,28 @@ Param (
 	[switch]$PushToStrap
 )
 
-function ZipFiles {
-    [CmdletBinding()]
-    Param (
-    	[Parameter(Mandatory=$True,Position=0)]
-		[string]$ZipFilePath,
-
-        [Parameter(ParameterSetName="Directory",Mandatory=$True,Position=1)]
-        [string]$SourceDir,
-
-        [Parameter(ParameterSetName="Files",Mandatory=$True,Position=1)]
-        [Array]$SourceFiles,
-
-        [Parameter(Mandatory=$False)]
-        [switch]$Force
-
-    )
-    Add-Type -Assembly System.IO.Compression.FileSystem
-    $CompressionLevel = [System.IO.Compression.CompressionLevel]::Optimal
-
-    if (Test-Path $ZipFilePath) {
-        if ($Force) {
-            $Delete = Remove-Item $ZipFilePath
-        } else {
-            Throw "$ZipFilePath exists, use -Force to replace"
-        }
-    }
-
-    if ($SourceFiles) {
-        $TempZipFolder = 'newzip'
-        $TempZipFullPath = "$($env:temp)\$TempZipFolder"
-        $CreateFolder = New-Item -Path $env:temp -Name $TempZipFolder -ItemType Directory
-        $Copy = Copy-Item $SourceFiles -Destination $TempZipFullPath
-        $SourceDir = $TempZipFullPath
-    }
-
-    [System.IO.Compression.ZipFile]::CreateFromDirectory($SourceDir,$ZipFilePath, $CompressionLevel, $false)
-
-    $Cleanup = Remove-Item $TempZipFullPath -Recurse
-}
-
-
 $ScriptPath = Split-Path $($MyInvocation.MyCommand).Path
+$ModuleName = Split-Path $ScriptPath -Leaf
 
 $SourceDirectory = "src"
 $SourcePath      = $ScriptPath + "\" + $SourceDirectory
 $CmdletPath      = $SourcePath + "\" + "cmdlets"
 $HelperPath      = $SourcePath + "\" + "helpers"
 $CsPath          = $SourcePath + "\" + "cs"
-$OutputFile      = $ScriptPath + "\" + "ExtremeShell.psm1"
-$ManifestFile    = $ScriptPath + "\" + "ExtremeShell.psd1"
-$DllFile         = $ScriptPath + "\" + "ExtremeShell.dll"
-$CsOutputFile    = $ScriptPath + "\" + "ExtremeShell.cs"
+$OutputFile      = $ScriptPath + "\" + "$ModuleName.psm1"
+$ManifestFile    = $ScriptPath + "\" + "$ModuleName.psd1"
+$DllFile         = $ScriptPath + "\" + "$ModuleName.dll"
+$CsOutputFile    = $ScriptPath + "\" + "$ModuleName.cs"
 
 ###############################################################################
 # Create Manifest
 $ManifestParams = @{ Path = $ManifestFile
                      ModuleVersion = '1.0'
-                     RequiredAssemblies = @('ExtremeShell.dll','System.Web')
+                     RequiredAssemblies = @("$ModuleName.dll",'System.Web')
                      Author             = 'Brian Addicks'
-                     RootModule         = 'ExtremeShell.psm1'
-                     PowerShellVersion  = '4.0' }
-                     #FormatsToProcess   = @('ExtremeShell.format.ps1xml') }
+                     RootModule         = "$ModuleName.psm1"
+                     PowerShellVersion  = '4.0' 
+                     RequiredModules    = @('ipv4math')}
 
 New-ModuleManifest @ManifestParams
 
@@ -110,7 +70,7 @@ $CsOutput  = ""
 # Add C-Sharp
 
 $AssemblyRx       = [regex] '^using\ .+?;'
-$NameSpaceStartRx = [regex] 'namespace ExtremeShell {'
+$NameSpaceStartRx = [regex] "namespace $ModuleName {"
 $NameSpaceStopRx  = [regex] '^}$'
 
 $Assemblies    = @()
@@ -147,7 +107,7 @@ foreach ($f in $(ls $CsPath)) {
 #$Assemblies | Select -Unique | sort -Descending
 
 $CSharpOutput  = $Assemblies | Select -Unique | sort -Descending
-$CSharpOutput += 'namespace ExtremeShell {'
+$CSharpOutput += "namespace $ModuleName {"
 $CSharpOutput += $CSharpContent
 $CSharpOutput += '}'
 
@@ -200,9 +160,59 @@ $Output += $Footer
 
 $Output | Out-File $OutputFile -Force
 
+###############################################################################
+# Copy to Strap
+
 if ($PushToStrap) {
-    $FilesToZip = ls "$PSScriptRoot\ExtremeShell*" -Exclude *.zip
-    $CreateZip = ZipFiles -ZipFilePath "$PSScriptRoot\ExtremeShell.zip" -SourceFiles $FilesToZip -Force
-    $StageFolder = '\\vmware-host\Shared Folders\Dropbox\strap\stages\ExtremeShell\'
-    $Copy = Copy-Item "$PSScriptRoot\ExtremeShell.zip" $StageFolder -Force
+    # Create Temporary folder for zipping
+    $TempZipFolder = 'newzip'
+    $TempZipFullPath = "$($env:temp)\$TempZipFolder"
+    $CreateFolder = New-Item -Path $env:temp -Name $TempZipFolder -ItemType Directory
+    
+    # Select Files for Zipping
+    $FilesToZip = ls "$PSScriptRoot\$ModuleName*" -Exclude *.zip
+    $Copy       = Copy-Item $FilesToZip -Destination $TempZipFullPath
+    if (Test-Path "$PSScriptRoot\Resources") {
+        $CopyResources = Copy-Item "$PSScriptRoot\Resources" -Recurse -Destination $TempZipFullPath
+    } 
+    
+    # Zip them Up
+    $ZipFilePath = "$PSScriptRoot\$ModuleName.zip"
+    $Delete      = Remove-Item $ZipFilePath
+    
+    Add-Type -Assembly System.IO.Compression.FileSystem
+    $CompressionLevel = [System.IO.Compression.CompressionLevel]::Optimal
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($TempZipFullPath,$ZipFilePath, $CompressionLevel, $false)
+    
+    # Copy to Strap
+    $StageFolder = "\\vmware-host\Shared Folders\Dropbox\strap\stages\$ModuleName\"
+        
+    try {
+        $CheckForFolder = ls $StageFolder -ErrorAction Stop
+    } catch {
+        $MakeFolder = New-Item -Path $StageFolder -ItemType Directory
+    }
+    $Copy = Copy-Item "$PSScriptRoot\$ModuleName.zip" $StageFolder -Force
+    $Remove = Remove-Item $TempZipFullPath -Recurse
+    
+        # Create stage_init.ps1
+    $StageInitContents  = @()
+    $StageInitContents += "#DESCRIPTION $ModuleName`r`n`r`n"
+    $StageInitContents += "Push-Location -path $ModuleName`r`n`r`n"
+    $StageInitContents += "if (!(Test-Path .\$ModuleName.psd1)) {`r`n" 
+    
+    $StageInitContents += @"
+ 	#not downloaded and extracted; do it
+	
+	`$shell_app=new-object -com shell.application
+	`$filename = "$ModuleName.zip"
+	`$zip_file = `$shell_app.namespace((Get-Location).Path + "\`$filename")
+	`$(`$shell_app.namespace((Get-Location).Path)).Copyhere(`$zip_file.items())
+	Remove-Item `$filename
+	Remove-Variable shell_app,filename,zip_file
+}
+Pop-Location
+"@
+    
+    $StageInitContents | Out-File "$StageFolder\stage_init.ps1"
 }
