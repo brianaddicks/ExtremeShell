@@ -10,7 +10,6 @@ function Get-ExPortStatus {
 		[array]$ShowSupportOutput
 	)
 	
-	Write-debug "wtf"
 	$VerbosePrefix = "Get-ExPortStatus:"
 	$ReturnObject  = @()
 	
@@ -18,10 +17,8 @@ function Get-ExPortStatus {
 	$i          = 0 
 	$StopWatch  = [System.Diagnostics.Stopwatch]::StartNew() # used by Write-Progress so it doesn't slow the whole function down
 	
-	Write-Verbose "testing"
 	:fileloop foreach ($line in $ShowSupportOutput) {
 		$i++
-		$i
 		# Write progress bar, we're only updating every 1000ms, if we do it every line it takes forever
 		
 		if ($StopWatch.Elapsed.TotalMilliseconds -ge 1000) {
@@ -46,7 +43,7 @@ function Get-ExPortStatus {
 		
 		$Regex = [regex] "^Support->"
 		$Match = HelperEvalRegex $Regex $line
-		if ($Match) { break }
+		if ($Match -and $InSection) { break }
 		
 		if ($InSection) {
 			###########################################################################################
@@ -54,7 +51,7 @@ function Get-ExPortStatus {
 			$EvalParams = @{}
 			$EvalParams.StringToEval   = $line
 			
-			# LagPorts
+			# Header
 			$EvalParams.Regex = [regex] '(?mx)^
 			                             (?<port>-+?)\ 
 										 (?<alias>-+?)\ 
@@ -64,39 +61,52 @@ function Get-ExPortStatus {
 										 (?<duplex>-+?)\ 
 										 (?<type>-+?)$'
 											 
-			$Eval             = HelperEvalRegex @EvalParams
+			$Eval = HelperEvalRegex @EvalParams
 			if ($Eval) {
 				Write-Verbose "$VerbosePrefix Header matched"
-				$Port = $Eval.Groups['port'].Value
-				$Port.Length
-			}
-			<#
-			# SinglePortLag
-			$EvalParams.Regex = [regex] '^set\ lacp\ singleportlag\ enable'
-			$Eval             = HelperEvalRegex @EvalParams
-			if ($Eval) { $NewObject.SinglePortLag = $true }
-			
-			# FlowRegeneration
-			$EvalParams.Regex = [regex] '^set\ lacp\ flowRegeneration\ enable'
-			$Eval             = HelperEvalRegex @EvalParams
-			if ($Eval) { $NewObject.FlowRegeneration = $true }
-			
-			###########################################################################################
-			# Regular Properties
-			$EvalParams.VariableToUpdate = ([REF]$NewObject)
-			$EvalParams.ReturnGroupNum   = 1
-			$EvalParams.LoopName         = 'fileloop'
+				$Port   = ($Eval.Groups['port'].Value).Length -1
+				$Alias  = ($Eval.Groups['alias'].Value).Length
+				$Oper   = ($Eval.Groups['oper'].Value).Length
+				$Admin  = ($Eval.Groups['admin'].Value).Length
+				$Speed  = ($Eval.Groups['speed'].Value).Length
+				$Duplex = ($Eval.Groups['duplex'].Value).Length
+				$Type   = ($Eval.Groups['type'].Value).Length
 				
-			# SystemPriority
-			$EvalParams.ObjectProperty = "SystemPriority"
-			$EvalParams.Regex          = [regex] "^set\ lacp\ asyspri\ (\d+)"
-			$Eval                      = HelperEvalRegex @EvalParams
+				$StatusRx  = "^(?<port>\w.{$Port})\ "
+				$StatusRx += "(?<alias>.{$Alias})\ "
+				$StatusRx += "(?<oper>.{$Oper})\ "
+				$StatusRx += "(?<admin>.{$Admin})\ "
+				$StatusRx += "(?<speed>.{$Speed})\ "
+				$StatusRx += "(?<duplex>.{$Duplex})"
+				$StatusRx += "(\ (?<type>.{$Type}))?"
+				$Global:StatusRxTest = $StatusRx
+				$StatusRx  = [regex]$StatusRx
+				continue
+			}
 			
-			# OutportLocalPreference
-			$EvalParams.ObjectProperty = "OutportLocalPreference"
-			$EvalParams.Regex          = [regex] "^set\ lacp\ outportLocalPreference\ (.+)"
-			$Eval                      = HelperEvalRegex @EvalParams
-			#>
+			# Status
+			if ($StatusRx) {
+				$EvalParams.Regex = $StatusRx
+				$Eval             = HelperEvalRegex @EvalParams
+				if ($Eval) {
+					$NewObject     = New-Object -Type ExtremeShell.Port
+					$ReturnObject += $NewObject
+					
+					$NewObject.Name       = $Eval.Groups['port'].Value.Trim()
+					$NewObject.Alias      = $Eval.Groups['alias'].Value.Trim()
+					$NewObject.OperStatus = $Eval.Groups['oper'].Value.Trim()
+					$NewObject.Speed      = $Eval.Groups['speed'].Value.Trim()
+					$NewObject.Duplex     = $Eval.Groups['duplex'].Value.Trim()
+					$NewObject.Type       = $Eval.Groups['type'].Value.Trim() -replace "\ +","/"
+					
+					if ($Eval.Groups['admin'].Value.Trim() -eq "up") {
+						$NewObject.Enabled = $true
+					} else {
+						$NewObject.Enabled = $false
+					}
+					continue
+				}
+				}
 		}
 	}	
 	return $ReturnObject
