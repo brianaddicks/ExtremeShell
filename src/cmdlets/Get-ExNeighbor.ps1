@@ -12,7 +12,9 @@ function Get-ExNeighbor {
 	
 	$VerbosePrefix = "Get-ExNeighbor:"
 	
-	$IpRx = [regex] "(\d+\.){3}\d+"
+	$IpRx         = [regex] "(\d+\.){3}\d+"
+	$PromptString = [regex] "^.+?->"
+	$StartString  = [regex] "$PromptString\ show\ neighbors"
 	
 	$TotalLines = $ShowSupportOutput.Count
 	$i          = 0 
@@ -35,18 +37,31 @@ function Get-ExNeighbor {
 		if ($line -eq "") { continue }
 		
 		###########################################################################################
-		# Check for the Section
+		# Check for the Start/Stop
 		
-		$Regex = [regex] "^(?<localport>\w+\.\d+\.\d+)\ +(?<deviceid>[^\ ]+?)\ +(?<remoteport>[^\ ]+?)\ +(?<type>\w+)\ +(?<ip>$IpRx)?"
+		$Regex = $StartString
 		$Match = HelperEvalRegex $Regex $line
 		if ($Match) {
-			$NewObject             = New-Object -Type ExtremeShell.Neighbor
-			$NewObject.LocalPort   = $Match.Groups['localport'].Value
-			$NewObject.DeviceId    = $Match.Groups['deviceid'].Value
-			$NewObject.RemotePort  = $Match.Groups['remoteport'].Value
-			$NewObject.Type        = $Match.Groups['type'].Value
-			$NewObject.IpAddress   = $Match.Groups['ip'].Value
-			$ReturnObject         += $NewObject
+			$InSection = $true
+			continue
+		}
+		
+		$Regex = $PromptString
+		$Match = HelperEvalRegex $Regex $line
+		if ($Match) { $InSection = $false }
+		
+		if ($InSection) {
+			$Regex = [regex] "^(?<localport>\w+\.\d+\.\d+)\ +(?<deviceid>[^\ ]+?)\ +(?<remoteport>[^\ ]+?)\ +(?<type>\w+)\ +(?<ip>$IpRx)?"
+			$Match = HelperEvalRegex $Regex $line
+			if ($Match) {
+				$NewObject             = New-Object -Type ExtremeShell.Neighbor
+				$NewObject.LocalPort   = $Match.Groups['localport'].Value
+				$NewObject.DeviceId    = $Match.Groups['deviceid'].Value
+				$NewObject.RemotePort  = $Match.Groups['remoteport'].Value
+				$NewObject.Type        = $Match.Groups['type'].Value
+				$NewObject.IpAddress   = $Match.Groups['ip'].Value
+				$ReturnObject         += $NewObject
+			}
 		}
 	}	
 	return $ReturnObject
